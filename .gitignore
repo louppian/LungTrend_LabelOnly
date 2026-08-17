@@ -1,0 +1,31 @@
+# Weights
+assets/weights/*.pth
+assets/weights/*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.egg-info/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Results
+results/
+
+# Gradio
+flagged/
+.gradio/
+
+# 판독 대상 데이터 (1.2GB). export 하면 results/ 로 이동하므로 내용이 계속 바뀐다.
+# 폴더째 복사해서 배포하므로 git 으로 추적하지 않는다.
+phase2a_npz/
+
+# 오프라인 배포용 휠 (2.9GB)
+offline_packages/
+offline_packages_torch/

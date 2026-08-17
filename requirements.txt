@@ -1,0 +1,7 @@
+# 전체 설치용 (온라인 PC).
+# torch는 CUDA 빌드가 필수이므로 반드시 아래 명령으로 설치할 것:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
+# (+cu118 핀 덕분에 PyPI의 CPU 빌드가 조용히 설치되는 사고가 차단됨)
+torch==2.6.0+cu118
+torchvision==0.21.0+cu118
+-r requirements_extra.txt

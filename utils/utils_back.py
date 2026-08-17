@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import os
 import re
 import cv2
-import shutil
 from glob import glob
 import torchvision.transforms as transforms
 import torch
@@ -611,29 +610,33 @@ def remaining_source_count():
     return len(glob(os.path.join(SOURCE_NPZ_DIR, "*.npz")))
 
 
-def _move_source_npz(source_npz_name):
-    """판독이 끝난 원본 npz를 results/ 로 이동. 옮겨진 것 = 판독 완료."""
+def _source_npz_path(source_npz_name):
+    """판독 대기 폴더에 있는 원본 npz 경로. 없으면 None."""
     if not source_npz_name:
         return None
+    path = os.path.join(SOURCE_NPZ_DIR, os.path.basename(str(source_npz_name)))
+    return path if os.path.exists(path) else None
 
-    src = os.path.join(SOURCE_NPZ_DIR, os.path.basename(str(source_npz_name)))
-    if not os.path.exists(src):
-        return None
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    dst = os.path.join(RESULTS_DIR, os.path.basename(src))
-    root, ext = os.path.splitext(dst)
-    n = 1
-    while os.path.exists(dst):
-        dst = f"{root}_{n}{ext}"
-        n += 1
-
+def _verify_result_npz(path, scores, expect_images):
+    """원본을 지우기 전에 합쳐 저장한 결과가 온전한지 확인."""
     try:
-        shutil.move(src, dst)
-        return dst
+        with np.load(path, allow_pickle=True) as d:
+            saved = np.array(d["inference_edit"].tolist()).tolist()
+            if saved != [[int(v) for v in row] for row in scores]:
+                print("[VERIFY] 점수가 일치하지 않음")
+                return False
+            if expect_images is not None:
+                if "original_images" not in d.files:
+                    print("[VERIFY] original_images 누락")
+                    return False
+                if np.asarray(d["original_images"]).shape != np.asarray(expect_images).shape:
+                    print("[VERIFY] 이미지 형상 불일치")
+                    return False
+        return True
     except Exception as e:
-        gr.Warning(f"원본 npz 이동 실패 (판독 결과는 저장됨): {e}")
-        return None
+        print(f"[VERIFY] 결과 파일을 읽지 못함: {e}")
+        return False
 
 
 def export_npy(inference_list_edit,
@@ -656,8 +659,8 @@ def export_npy(inference_list_edit,
     yymmdd = now.strftime("%y%m%d")
     hhmmss = now.strftime("%H%M%S")
 
-    # results/ 는 평평하게 유지한다. 하위 폴더도, 이미지 사본도 만들지 않는다 —
-    # 이미지는 같은 폴더로 옮겨지는 원본 npz 에 이미 들어 있다.
+    # results/ 는 평평하게 유지하고, 판독이 끝난 건마다 파일 하나만 남긴다.
+    # 원본 npz 의 이미지에 판독 점수를 얹어 저장한 뒤 원본을 지운다.
     BASE_DIR = RESULTS_DIR
     os.makedirs(BASE_DIR, exist_ok=True)
     npz_path = os.path.join(BASE_DIR, f"{patient_id}_{now.strftime('%m%d%H%M')}.npz")
@@ -667,15 +670,23 @@ def export_npy(inference_list_edit,
         npz_path = f"{root}_{n}{ext}"
         n += 1
 
-    export_data = {
+    # 원본의 이미지(original_images)와 uid2 라벨(gallery)을 그대로 물려받는다.
+    src_path = _source_npz_path(source_npz_name)
+    export_data = {}
+    if src_path:
+        with np.load(src_path, allow_pickle=True) as src:
+            export_data = {k: src[k] for k in src.files if k != "inference"}
+
+    # inference / inference_edit 로 나누지 않는다. 원래 전자는 AI 추론값,
+    # 후자는 판독자 수정값이었지만 Label-Only 는 추론이 없어 값이 늘 같았다.
+    export_data.update({
         "patient_id":     patient_id,
         "user_id":        user_id,
         "timestamp":      now.strftime("%Y-%m-%d %H:%M:%S"),
         "source_npz":     str(source_npz_name or ""),
         "image_ids":      np.array([str(x) for x in (file_names or [])]),
-        "inference":      inference_list_edit,
         "inference_edit": inference_list_edit,
-    }
+    })
     np.savez(npz_path, **export_data)
     print(f"[NPZ] saved → {npz_path}")
 
@@ -752,9 +763,19 @@ def export_npy(inference_list_edit,
             except Exception as e:
                 print(f"[Excel] 폴백 파일 삭제 실패(무시): {fb} — {e}")
 
-    moved = _move_source_npz(source_npz_name)
-    if moved:
-        print(f"[MOVE] {source_npz_name} → {moved}")
-        gr.Info(f"Export Complete ✅ — {os.path.basename(moved)} 이동, 남은 판독 {remaining_source_count()}개")
-    else:
-        gr.Info("Export Complete ✅")
+    # 결과가 온전한 것을 확인한 뒤에만 원본을 지운다. 확인에 실패하면 원본을
+    # 그대로 두므로 판독을 다시 할 수 있다.
+    if src_path and _verify_result_npz(npz_path, inference_list_edit,
+                                       export_data.get("original_images")):
+        try:
+            os.remove(src_path)
+            print(f"[DONE] {os.path.basename(src_path)} → {os.path.basename(npz_path)} (원본 삭제)")
+            gr.Info(f"Export Complete ✅ — {os.path.basename(npz_path)} 저장, "
+                    f"남은 판독 {remaining_source_count()}개")
+            return
+        except Exception as e:
+            gr.Warning(f"원본 npz 삭제 실패 (결과는 저장됨): {e}")
+    elif src_path:
+        gr.Warning("결과 파일 검증에 실패해 원본을 남겨 둡니다. 다시 export 하세요.")
+
+    gr.Info("Export Complete ✅")

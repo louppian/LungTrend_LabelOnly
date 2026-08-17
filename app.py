@@ -424,7 +424,7 @@ with gr.Blocks(css=css) as demo:
 
     # Export — 4분면이 모두 0인 이미지가 임계값 이상이면 확인 팝업을 먼저 띄운다
     export_inputs = [inference_list_edit, patient_id_info, user_id_input,
-                     gallery, orgn_img_list, file_names_state, source_npz_name]
+                     file_names_state, source_npz_name]
 
     def maybe_export(*args):
         zero_count = count_all_zero_images(args[0])

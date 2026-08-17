@@ -594,20 +594,6 @@ def _safe(txt):
     return re.sub(r"[\\/:*?\"<>|]", "_", str(txt).strip())
 
 
-def _make_npz_dir(base, user_id, date_dir):
-    path = os.path.join(base, user_id, date_dir)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _to_uint8(arr: np.ndarray) -> np.ndarray:
-    if arr.dtype.kind == "f":
-        if arr.max() > 1.5:  # 0~255 스케일 float (NPZ 로드 등)
-            arr = arr / 255.0
-        arr = np.clip(arr, 0, 1) * 255
-    return arr.astype(np.uint8)
-
-
 def _clean_gallery_label(label: str) -> str:
     cleaned = re.sub(r"^[✔✓]\s*", "", label)
     cleaned = re.sub(r"^\d+\.\s*", "", cleaned)
@@ -651,8 +637,7 @@ def _move_source_npz(source_npz_name):
 
 
 def export_npy(inference_list_edit,
-               ext_pid, user_id_input, gallery, orgn_img_list, file_names=None,
-               source_npz_name=None):
+               ext_pid, user_id_input, file_names=None, source_npz_name=None):
 
     if inference_list_edit:
         unlabeled = []
@@ -671,41 +656,25 @@ def export_npy(inference_list_edit,
     yymmdd = now.strftime("%y%m%d")
     hhmmss = now.strftime("%H%M%S")
 
+    # results/ 는 평평하게 유지한다. 하위 폴더도, 이미지 사본도 만들지 않는다 —
+    # 이미지는 같은 폴더로 옮겨지는 원본 npz 에 이미 들어 있다.
     BASE_DIR = RESULTS_DIR
-    npz_dir = _make_npz_dir(BASE_DIR, user_id, yymmdd)
-    npz_path = os.path.join(npz_dir, f"{patient_id}_{hhmmss}.npz")
-
-    img_dir = os.path.join(npz_dir, f"{patient_id}_{hhmmss}_images")
-    os.makedirs(img_dir, exist_ok=True)
-
-    for idx, gallery_item in enumerate(gallery or []):
-        img_raw = gallery_item[0] if isinstance(gallery_item, (list, tuple)) else gallery_item
-        true_name = file_names[idx] if file_names and idx < len(file_names) else f"image_{idx+1}"
-        root, _ = os.path.splitext(true_name)
-        save_name = f"{idx+1:02d}_{root}.png"
-        save_path = os.path.join(img_dir, save_name)
-        try:
-            if isinstance(img_raw, Image.Image):
-                img_raw.save(save_path)
-            elif isinstance(img_raw, str):
-                Image.open(img_raw).save(save_path)
-            else:
-                arr = _to_uint8(np.asarray(img_raw))
-                mode = "L" if arr.ndim == 2 else "RGB"
-                Image.fromarray(arr, mode=mode).save(save_path)
-        except Exception as e:
-            print(f"[IMG] 저장 실패 ({save_name}): {e}")
-
-    print(f"[IMG]  saved → {img_dir} ({len(orgn_img_list or [])} files)")
+    os.makedirs(BASE_DIR, exist_ok=True)
+    npz_path = os.path.join(BASE_DIR, f"{patient_id}_{now.strftime('%m%d%H%M')}.npz")
+    root, ext = os.path.splitext(npz_path)
+    n = 1
+    while os.path.exists(npz_path):
+        npz_path = f"{root}_{n}{ext}"
+        n += 1
 
     export_data = {
-        "patient_id":      patient_id,
-        "user_id":         user_id,
-        "timestamp":       now.strftime("%Y-%m-%d %H:%M:%S"),
-        "gallery":         list(gallery or []),
-        "original_images": list(orgn_img_list or []),
-        "inference":       inference_list_edit,
-        "inference_edit":  inference_list_edit,
+        "patient_id":     patient_id,
+        "user_id":        user_id,
+        "timestamp":      now.strftime("%Y-%m-%d %H:%M:%S"),
+        "source_npz":     str(source_npz_name or ""),
+        "image_ids":      np.array([str(x) for x in (file_names or [])]),
+        "inference":      inference_list_edit,
+        "inference_edit": inference_list_edit,
     }
     np.savez(npz_path, **export_data)
     print(f"[NPZ] saved → {npz_path}")

@@ -107,15 +107,16 @@ def process_upload(files):
                 if raw_labels.ndim == 1 and raw_labels.dtype.kind in "US":
                     gallery_labels = [str(x) for x in raw_labels.tolist()]
             patient_id = data["patient_id"] if "patient_id" in data.files else "Unknown"
-            inference_edit = data["inference_edit"] if "inference_edit" in data.files else (
-                data["inference"] if "inference" in data.files else [])
+            labels_loaded = data["labels"] if "labels" in data.files else (
+                data["inference_edit"] if "inference_edit" in data.files else (
+                    data["inference"] if "inference" in data.files else []))
             user_id_loaded = data["user_id"] if "user_id" in data.files else "Unknown"
             timestamp_loaded = data["timestamp"] if "timestamp" in data.files else np.datetime_as_string(np.datetime64('now'))
         elif isinstance(data, dict):
             orgn_images = data.get("original_images", None)
             gallery_images = orgn_images if orgn_images is not None else data.get("gallery", None)
             patient_id = data.get("patient_id", "Unknown")
-            inference_edit = data.get("inference_edit", data.get("inference", []))
+            labels_loaded = data.get("labels", data.get("inference_edit", data.get("inference", [])))
             user_id_loaded = data.get("user_id", "Unknown")
             timestamp_loaded = data.get("timestamp", np.datetime_as_string(np.datetime64('now')))
         elif isinstance(data, np.ndarray) and data.shape == () and isinstance(data.item(), dict):
@@ -123,19 +124,19 @@ def process_upload(files):
             orgn_images = data.get("original_images", None)
             gallery_images = orgn_images if orgn_images is not None else data.get("gallery", None)
             patient_id = data.get("patient_id", "Unknown")
-            inference_edit = data.get("inference_edit", data.get("inference", []))
+            labels_loaded = data.get("labels", data.get("inference_edit", data.get("inference", [])))
             user_id_loaded = data.get("user_id", "Unknown")
             timestamp_loaded = data.get("timestamp", np.datetime_as_string(np.datetime64('now')))
         else:
             gallery_images = None
             orgn_images = None
             patient_id = "Unknown"
-            inference_edit = []
+            labels_loaded = []
             user_id_loaded = DEFAULT_USER_ID
             timestamp_loaded = np.datetime_as_string(np.datetime64('now'))
 
-        if isinstance(inference_edit, np.ndarray):
-            inference_edit = inference_edit.tolist()
+        if isinstance(labels_loaded, np.ndarray):
+            labels_loaded = labels_loaded.tolist()
         if isinstance(gallery_images, np.ndarray):
             gallery_images = gallery_images.tolist()
         if isinstance(orgn_images, np.ndarray):
@@ -185,7 +186,7 @@ def process_upload(files):
             f"File Count: {image_count}",
             user_id_loaded,
             file_is_npz,
-            inference_edit,
+            labels_loaded,
             [],
             npz_file_names,
             os.path.basename(first_file.name),
@@ -205,7 +206,7 @@ def process_upload(files):
             result[5],                        # ext_cnt
             DEFAULT_USER_ID,                   # user_id_loaded
             False,                             # file_is_npz
-            result[2],                        # inference_list_edit
+            result[2],                        # label_list_edit
             [],                               # selected_indices
             result[7],                        # file_names_state
             None,                             # source_npz_name (npz 업로드일 때만 채움)
@@ -222,7 +223,7 @@ with gr.Blocks(css=css) as demo:
     overlay_flag = gr.State(value=True)
     selected_indices = gr.State(value=[])
     orgn_img_list = gr.State(value=None)
-    inference_list_edit = gr.State(value=None)
+    label_list_edit = gr.State(value=None)
     datetime_state = gr.State(value=None)
     first_image1 = gr.State(value=None)
     first_image2 = gr.State(value=None)
@@ -298,7 +299,7 @@ with gr.Blocks(css=css) as demo:
             gallery, orgn_img_list, datetime_state,
             patient_id_info, file_type_info, image_count_info,
             ext_pid, ext_str, ext_cnt,
-            user_id_input, file_is_npz_state, inference_list_edit, selected_indices,
+            user_id_input, file_is_npz_state, label_list_edit, selected_indices,
             file_names_state, source_npz_name
         ],
     )
@@ -320,7 +321,7 @@ with gr.Blocks(css=css) as demo:
         inputs=[
             image1, image2, image3, image4,
             orgn_img_list,
-            overlay_flag, selected_indices, inference_list_edit,
+            overlay_flag, selected_indices, label_list_edit,
         ],
         outputs=[image1, image2, image3, image4, overlay_flag],
     ).then(
@@ -334,7 +335,7 @@ with gr.Blocks(css=css) as demo:
         outputs=[first_image1, first_image2, first_image3, first_image4],
     ).then(
         fn=update_graphs,
-        inputs=[inference_list_edit, popup_click_info, selected_indices],
+        inputs=[label_list_edit, popup_click_info, selected_indices],
         outputs=[graph_scores],
     )
 
@@ -349,7 +350,7 @@ with gr.Blocks(css=css) as demo:
                 image1, image2, image3, image4,
                 first_image1, first_image2, first_image3, first_image4,
                 overlay_flag, selected_indices, popup_click_info,
-                orgn_img_list, inference_list_edit,
+                orgn_img_list, label_list_edit,
             ],
             outputs=[
                 popup_click_info,
@@ -365,15 +366,15 @@ with gr.Blocks(css=css) as demo:
     # 팝업 저장 → 점수 반영 → 오버레이 갱신 → 팝업 닫기
     popup_save.click(
         fn=update_score,
-        inputs=[popup_score_edit, popup_click_info, inference_list_edit],
-        outputs=[inference_list_edit],
+        inputs=[popup_score_edit, popup_click_info, label_list_edit],
+        outputs=[label_list_edit],
     ).then(
         fn=refresh_main_images,
-        inputs=[orgn_img_list, inference_list_edit, selected_indices, overlay_flag, popup_click_info],
+        inputs=[orgn_img_list, label_list_edit, selected_indices, overlay_flag, popup_click_info],
         outputs=[image1, image2, image3, image4],
     ).then(
         fn=update_graphs,
-        inputs=[inference_list_edit, popup_click_info, selected_indices],
+        inputs=[label_list_edit, popup_click_info, selected_indices],
         outputs=[graph_scores],
     ).then(
         fn=lambda: gr.update(visible=False),
@@ -391,7 +392,7 @@ with gr.Blocks(css=css) as demo:
     overlay_button.click(
         fn=toggle_overlay,
         inputs=[
-            orgn_img_list, inference_list_edit, selected_indices,
+            orgn_img_list, label_list_edit, selected_indices,
             popup_click_info, overlay_flag,
         ],
         outputs=[image1, image2, image3, image4, overlay_flag, overlay_button],
@@ -400,31 +401,31 @@ with gr.Blocks(css=css) as demo:
     # 팝업 값 변경
     popup_click_info.change(
         fn=update_dropdown_default,
-        inputs=[popup_click_info, inference_list_edit],
+        inputs=[popup_click_info, label_list_edit],
         outputs=[popup_score_edit],
     )
 
     popup_score_edit.input(
         fn=update_score,
-        inputs=[popup_score_edit, popup_click_info, inference_list_edit],
-        outputs=inference_list_edit,
+        inputs=[popup_score_edit, popup_click_info, label_list_edit],
+        outputs=label_list_edit,
     ).then(
         fn=update_dropdown_default,
-        inputs=[popup_click_info, inference_list_edit],
+        inputs=[popup_click_info, label_list_edit],
         outputs=[popup_score_edit],
     ).then(
         fn=refresh_main_images,
-        inputs=[orgn_img_list, inference_list_edit, selected_indices, overlay_flag, popup_click_info],
+        inputs=[orgn_img_list, label_list_edit, selected_indices, overlay_flag, popup_click_info],
         outputs=[image1, image2, image3, image4],
     ).then(
         fn=update_graphs,
-        inputs=[inference_list_edit, popup_click_info, selected_indices],
+        inputs=[label_list_edit, popup_click_info, selected_indices],
         outputs=[graph_scores],
     )
 
     # Export — 4분면이 모두 0인 이미지가 임계값 이상이면 확인 팝업을 먼저 띄운다
-    export_inputs = [inference_list_edit, patient_id_info, user_id_input,
-                     file_names_state, source_npz_name]
+    export_inputs = [label_list_edit, patient_id_info, user_id_input,
+                     file_names_state, source_npz_name, orgn_img_list]
 
     def maybe_export(*args):
         zero_count = count_all_zero_images(args[0])
@@ -471,7 +472,7 @@ with gr.Blocks(css=css) as demo:
             orgn_img_list,
             first_image1, first_image2, first_image3, first_image4,
             patient_id_info,
-            inference_list_edit,
+            label_list_edit,
             popup_click_info, popup_score_edit,
             ext_str, ext_cnt, ext_pid,
             user_id_input,
@@ -503,3 +504,4 @@ import gradio.networking as _gn
 _gn.url_ok = lambda url: True
 
 demo.launch(server_name="127.0.0.1", server_port=SERVER_PORT, share=False, debug=True, inbrowser=False, show_api=False)
+

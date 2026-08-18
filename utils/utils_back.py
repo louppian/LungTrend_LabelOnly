@@ -283,8 +283,8 @@ def on_image4_click(image1, image2, image3, image4,
 # Inference / Score 관련
 # ════════════════════════════════════════════════
 
-def update_dropdown_default(click_info, inference_list_edit):
-    if click_info == "Unknown" or not inference_list_edit:
+def update_dropdown_default(click_info, label_list_edit):
+    if click_info == "Unknown" or not label_list_edit:
         return "X"
     try:
         parts = click_info.split(",")
@@ -292,7 +292,7 @@ def update_dropdown_default(click_info, inference_list_edit):
         region_str = parts[1].strip()
         image_idx = int(image_str.split(" ")[1]) - 1
         region_idx = ROI_MAPPING.get(region_str, 0)
-        current_score = inference_list_edit[image_idx][region_idx]
+        current_score = label_list_edit[image_idx][region_idx]
         if current_score == -1:
             score_str = "X"
         else:
@@ -303,9 +303,9 @@ def update_dropdown_default(click_info, inference_list_edit):
         return "X"
 
 
-def update_score(new_score, click_info, inference_list_edit):
-    if click_info == "Unknown" or not inference_list_edit:
-        return inference_list_edit
+def update_score(new_score, click_info, label_list_edit):
+    if click_info == "Unknown" or not label_list_edit:
+        return label_list_edit
     try:
         parts = click_info.split(",")
         image_str = parts[0].strip()
@@ -314,31 +314,31 @@ def update_score(new_score, click_info, inference_list_edit):
         region_idx = ROI_MAPPING.get(region_str, 0)
         cleaned_score = new_score.replace("*", "").strip()
         if cleaned_score.upper() == "X":
-            inference_list_edit[image_idx][region_idx] = -1
-            return inference_list_edit
+            label_list_edit[image_idx][region_idx] = -1
+            return label_list_edit
         score = int(cleaned_score)
         if not 0 <= score <= 4:
             gr.Warning(f"점수는 0~4 범위여야 합니다: {cleaned_score}")
-            return inference_list_edit
-        inference_list_edit[image_idx][region_idx] = score
+            return label_list_edit
+        label_list_edit[image_idx][region_idx] = score
     except ValueError:
         gr.Warning(f"숫자가 아닌 점수는 저장되지 않습니다: {new_score}")
     except Exception as e:
         print("Error : update_score: ", e)
-    return inference_list_edit
+    return label_list_edit
 
 
 # ════════════════════════════════════════════════
 # 그래프
 # ════════════════════════════════════════════════
 
-def update_graphs(inference_list_edit, click_info, selected_indices):
-    if not inference_list_edit:
+def update_graphs(label_list_edit, click_info, selected_indices):
+    if not label_list_edit:
         return None
 
     plt.close('all')
 
-    n_imgs = len(inference_list_edit)
+    n_imgs = len(label_list_edit)
     xs = list(range(1, n_imgs + 1))
 
     upd_i = upd_roi = None
@@ -350,7 +350,7 @@ def update_graphs(inference_list_edit, click_info, selected_indices):
         except Exception:
             pass
 
-    series = [(inference_list_edit, "User Scores", "#E26114", "-", 3)]
+    series = [(label_list_edit, "User Labels", "#E26114", "-", 3)]
 
     return _build_graph(series, n_imgs, xs, selected_indices, upd_i, upd_roi)
 
@@ -568,7 +568,7 @@ def reset_page():
 
         gr.update(value=""),            # patient_id_info
 
-        gr.update(value=None),          # inference_list_edit
+        gr.update(value=None),          # label_list_edit
 
         gr.update(value="Unknown"),     # popup_click_info
         gr.update(value="X"),           # popup_score_edit
@@ -599,11 +599,11 @@ def _clean_gallery_label(label: str) -> str:
     return cleaned.strip()
 
 
-def count_all_zero_images(inference_list_edit):
+def count_all_zero_images(label_list_edit):
     """4분면이 모두 0인 이미지 수 — 판독하지 않고 넘긴 장수 확인용."""
-    if not inference_list_edit:
+    if not label_list_edit:
         return 0
-    return sum(1 for row in inference_list_edit if all(int(v) == 0 for v in row))
+    return sum(1 for row in label_list_edit if all(int(v) == 0 for v in row))
 
 
 def remaining_source_count():
@@ -622,7 +622,8 @@ def _verify_result_npz(path, scores, expect_images):
     """원본을 지우기 전에 합쳐 저장한 결과가 온전한지 확인."""
     try:
         with np.load(path, allow_pickle=True) as d:
-            saved = np.array(d["inference_edit"].tolist()).tolist()
+            score_key = "labels" if "labels" in d.files else "inference_edit"
+            saved = np.array(d[score_key].tolist()).tolist()
             if saved != [[int(v) for v in row] for row in scores]:
                 print("[VERIFY] 점수가 일치하지 않음")
                 return False
@@ -639,12 +640,13 @@ def _verify_result_npz(path, scores, expect_images):
         return False
 
 
-def export_npy(inference_list_edit,
-               ext_pid, user_id_input, file_names=None, source_npz_name=None):
+def export_npy(label_list_edit,
+               ext_pid, user_id_input, file_names=None,
+               source_npz_name=None, orgn_img_list=None):
 
-    if inference_list_edit:
+    if label_list_edit:
         unlabeled = []
-        for i, row in enumerate(inference_list_edit):
+        for i, row in enumerate(label_list_edit):
             for j, v in enumerate(row):
                 if v == -1:
                     roi_name = ["RT", "LT", "RB", "LB"][j]
@@ -670,22 +672,29 @@ def export_npy(inference_list_edit,
         npz_path = f"{root}_{n}{ext}"
         n += 1
 
-    # 원본의 이미지(original_images)와 uid2 라벨(gallery)을 그대로 물려받는다.
+    # 원본이 있으면 metadata를 물려받고, 이미 삭제된 뒤의 재-export는
+    # 현재 화면 state의 이미지/라벨로 완전한 npz를 다시 구성한다.
     src_path = _source_npz_path(source_npz_name)
     export_data = {}
     if src_path:
         with np.load(src_path, allow_pickle=True) as src:
-            export_data = {k: src[k] for k in src.files if k != "inference"}
+            export_data = {
+                k: src[k] for k in src.files
+                if k not in ("inference", "inference_edit", "labels")
+            }
+    elif orgn_img_list is not None:
+        export_data["original_images"] = np.array(orgn_img_list)
+        export_data["gallery"] = np.array([str(x) for x in (file_names or [])])
 
-    # inference / inference_edit 로 나누지 않는다. 원래 전자는 AI 추론값,
-    # 후자는 판독자 수정값이었지만 Label-Only 는 추론이 없어 값이 늘 같았다.
+    # Label-Only 저장 포맷에서는 판독 점수를 labels 로 저장한다.
+    # 기존 inference/inference_edit key 는 읽기 호환용으로만 유지한다.
     export_data.update({
         "patient_id":     patient_id,
         "user_id":        user_id,
         "timestamp":      now.strftime("%Y-%m-%d %H:%M:%S"),
         "source_npz":     str(source_npz_name or ""),
         "image_ids":      np.array([str(x) for x in (file_names or [])]),
-        "inference_edit": inference_list_edit,
+        "labels":         label_list_edit,
     })
     np.savez(npz_path, **export_data)
     print(f"[NPZ] saved → {npz_path}")
@@ -702,8 +711,8 @@ def export_npy(inference_list_edit,
             gr.Warning("roi_export.xlsx가 열려 있습니다. 결과는 별도 파일로 저장됩니다.")
 
     MAX_EXPORT_IMAGES = 30
-    if inference_list_edit and len(inference_list_edit) > MAX_EXPORT_IMAGES:
-        gr.Warning(f"엑셀에는 최대 {MAX_EXPORT_IMAGES}장까지만 저장됩니다 (현재 {len(inference_list)}장).")
+    if label_list_edit and len(label_list_edit) > MAX_EXPORT_IMAGES:
+        gr.Warning(f"엑셀에는 최대 {MAX_EXPORT_IMAGES}장까지만 저장됩니다 (현재 {len(label_list_edit)}장).")
     columns = ["PatientID", "UserID", "Timestamp"]
     for i in range(1, MAX_EXPORT_IMAGES + 1):
         columns += [f"RT{i}", f"LT{i}", f"RB{i}", f"LB{i}"]
@@ -719,7 +728,7 @@ def export_npy(inference_list_edit,
         return row
 
     rows_new = [
-        _row(inference_list_edit, user_id),
+        _row(label_list_edit, user_id),
     ]
     df_new = pd.DataFrame(rows_new, columns=columns)
 
@@ -765,12 +774,12 @@ def export_npy(inference_list_edit,
 
     # 결과가 온전한 것을 확인한 뒤에만 원본을 지운다. 확인에 실패하면 원본을
     # 그대로 두므로 판독을 다시 할 수 있다.
-    if src_path and _verify_result_npz(npz_path, inference_list_edit,
+    if src_path and _verify_result_npz(npz_path, label_list_edit,
                                        export_data.get("original_images")):
         try:
             os.remove(src_path)
             print(f"[DONE] {os.path.basename(src_path)} → {os.path.basename(npz_path)} (원본 삭제)")
-            gr.Info(f"Export Complete ✅ — {os.path.basename(npz_path)} 저장, "
+            gr.Info(f"Export Complete - {os.path.basename(npz_path)} 저장, "
                     f"남은 판독 {remaining_source_count()}개")
             return
         except Exception as e:
@@ -778,4 +787,4 @@ def export_npy(inference_list_edit,
     elif src_path:
         gr.Warning("결과 파일 검증에 실패해 원본을 남겨 둡니다. 다시 export 하세요.")
 
-    gr.Info("Export Complete ✅")
+    gr.Info("Export Complete")

@@ -497,7 +497,7 @@ def _find_free_port(start=7860, tries=10):
 SERVER_PORT = _find_free_port()
 
 def _open_browser():
-    webbrowser.open(f"http://127.0.0.1:{SERVER_PORT}")
+    webbrowser.open(f"http://127.0.0.1:{SERVER_PORT}/?__theme=dark")
 threading.Timer(2, _open_browser).start()
 
 import gradio.networking as _gn

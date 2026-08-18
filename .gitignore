@@ -28,4 +28,3 @@ phase2a_npz/
 
 # 오프라인 배포용 휠 (2.9GB)
 offline_packages/
-offline_packages_torch/

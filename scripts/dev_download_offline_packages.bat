@@ -1,5 +1,6 @@
 @echo off
-cd /d "%~dp0"
+set "ROOT=%~dp0.."
+cd /d "%ROOT%"
 
 REM Find torch_ev env python directly - no "conda activate" needed.
 REM Using the env's own pip guarantees cp310 wheels are downloaded.
@@ -17,17 +18,18 @@ if not defined ENVPY (
 echo Using: %ENVPY%
 
 if not exist offline_packages mkdir offline_packages
-"%ENVPY%" -m pip download -r requirements_extra.txt -d offline_packages
+if not exist offline_packages\app mkdir offline_packages\app
+"%ENVPY%" -m pip download -r requirements\offline-app.txt -d offline_packages\app
 
 REM Remove CPU-build torch wheels pulled in as dependencies (e.g. by timm).
 REM A CPU wheel here could silently replace the CUDA build on the target PC.
-del /q "offline_packages\torch-*.whl" 2>nul
-del /q "offline_packages\torchvision-*.whl" 2>nul
+del /q "offline_packages\app\torch-*.whl" 2>nul
+del /q "offline_packages\app\torchvision-*.whl" 2>nul
 
 REM CUDA torch wheels for a fresh PC (about 2.7GB), kept in a separate folder.
-if not exist offline_packages_torch mkdir offline_packages_torch
-"%ENVPY%" -m pip download torch==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118 --extra-index-url https://pypi.org/simple -d offline_packages_torch
+if not exist offline_packages\torch-cu118 mkdir offline_packages\torch-cu118
+"%ENVPY%" -m pip download -r requirements\offline-torch-cu118.txt --index-url https://download.pytorch.org/whl/cu118 --extra-index-url https://pypi.org/simple -d offline_packages\torch-cu118
 
 echo.
-echo Download complete. Copy offline_packages and offline_packages_torch to target PC.
+echo Download complete. Copy the whole offline_packages folder to the target PC.
 pause

@@ -1,0 +1,6 @@
+# Online full install.
+# Use the PyTorch CUDA index so +cu118 wheels can be resolved:
+#   pip install -r requirements/online.txt --extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.6.0+cu118
+torchvision==0.21.0+cu118
+-r offline-app.txt
